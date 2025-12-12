@@ -37,6 +37,7 @@
 #include <driver/spi_master.h>
 #include "driver/gpio.h"
 #include "sdkconfig.h"
+#include "Bitcraze_PMW3901.h"
 
 #define SDA_PIN      (3)
 #define SCL_PIN      (4)
@@ -44,6 +45,7 @@
 #define PIN_NUM_MOSI (14)
 #define PIN_NUM_CLK  (44)
 #define PIN_CS       (46)
+#define PIN_CS2      (12)
 
 typedef struct {
     spi_host_device_t host;  ///< The SPI host used, set before calling `spi_eeprom_init()`
@@ -93,6 +95,15 @@ extern volatile float Az_bias;
 extern Alt_kalman EstimatedAltitude;
 extern volatile int16_t RawRangeFront;
 extern volatile int16_t RangeFront;
+
+// Optical Flow
+extern volatile float Flow_dx;
+extern volatile float Flow_dy;
+extern volatile float Flow_quality;
+
+// Optical Flow velocity
+extern volatile float Flow_vx;
+extern volatile float Flow_vy;
 
 void sensor_init(void);
 float sensor_read(void);

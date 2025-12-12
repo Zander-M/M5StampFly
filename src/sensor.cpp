@@ -26,6 +26,7 @@
 #include "sensor.hpp"
 #include "imu.hpp"
 #include "tof.hpp"
+#include "optical_flow.hpp"
 #include "flight_control.hpp"
 
 Madgwick Drone_ahrs;
@@ -43,6 +44,9 @@ Filter raw_gx_filter;
 Filter raw_gy_filter;
 Filter raw_gz_filter;
 Filter alt_filter;
+Filter flow_vx_filter;
+Filter flow_vy_filter;
+
 
 // Sensor data
 volatile float Roll_angle = 0.0f, Pitch_angle = 0.0f, Yaw_angle = 0.0f;
@@ -76,6 +80,18 @@ uint8_t Range0flag                  = 0;
 volatile uint8_t Under_voltage_flag = 0;
 // volatile uint8_t ToF_bottom_data_ready_flag;
 // volatile uint16_t Range=1000;
+
+// Optical Flow
+volatile int16_t Flow_dx = 0;
+volatile int16_t Flow_dy = 0;
+volatile int16_t Flow_quality = 0;
+
+volatile float Flow_vx = 0.0f;
+volatile float Flow_vy = 0.0f;
+
+constexpr float FLOW_PEROID = 0.01f; // 100 Hz
+constexpr float FLOW_MIN_QUALITY = 20; // quality threshold
+constexpr float FLOW_RAD_PER_PIXEL = 1.0f/12.5f; 
 
 uint8_t scan_i2c() {
     USBSerial.println("I2C scanner. Scanning ...");
@@ -138,6 +154,8 @@ void sensor_init() {
 
     tof_init();
     imu_init();
+    optical_flow_init();
+
     Drone_ahrs.begin(400.0);
     ina3221.begin(&Wire1);
     ina3221.reset();
@@ -167,6 +185,8 @@ void sensor_init() {
     raw_az_d_filter.set_parameter(0.1, 0.0025);  // alt158
     az_filter.set_parameter(0.1, 0.0025);        // alt158
     alt_filter.set_parameter(0.005, 0.0025);
+    flow_vx_filter.set_parameter(0.1f, 0.0025f); // 100 ms
+    flow_vy_filter.set_parameter(0.1f, 0.0025f);
 }
 
 float sensor_read(void) {
@@ -332,6 +352,36 @@ float sensor_read(void) {
         Az_bias      = EstimatedAltitude.Bias;
         // USBSerial.printf("Sens=%f Az=%f Altitude=%f Velocity=%f Bias=%f\n\r",Altitude, Az, Altitude2, Alt_velocity,
         // Az_bias);
+
+        // -- OPTICAL FLOW ---
+        if (opt_interval >= FLOW_PEROID) {
+            opt_interval = 0.0f;
+
+            int16_t dx, dy;
+            uint8_t quality;
+
+            optical_flow_get_offset(dx, dy, quality);
+
+            Flow_dx = dx;
+            Flow_dy = dy;
+            Flow_quality = quality;
+
+            if (quality >= FLOW_MIN_QUALITY && Altitude2 > 0.05f) {
+                float scale = FLOW_RAD_PER_PIXEL * Altitude2 / FLOW_PEROID;
+
+                float vx = -dy * scale;
+                float vy  = dx * scale;
+
+                // LPF for stability
+                Flow_vx = flow_vx_filter.update(vx, sens_interval);
+                Flow_vy = flow_vy_filter.update(vy, sens_interval);
+                
+            } else {
+                Flow_vx *= 0.95f;
+                Flow_vy *= 0.95f;
+            }
+            
+        }
     }
 
     // Accel fail safe
