@@ -29,6 +29,9 @@
 #include "optical_flow.hpp"
 #include "flight_control.hpp"
 
+#include "FreeRTOS.h" 
+#include "semphr.h"
+
 Madgwick Drone_ahrs;
 Alt_kalman EstimatedAltitude;
 
@@ -84,14 +87,23 @@ volatile uint8_t Under_voltage_flag = 0;
 // Optical Flow
 volatile int16_t Flow_dx = 0;
 volatile int16_t Flow_dy = 0;
-volatile int16_t Flow_quality = 0;
+volatile uint8_t Flow_quality = 0;
 
 volatile float Flow_vx = 0.0f;
 volatile float Flow_vy = 0.0f;
 
-constexpr float FLOW_PEROID = 0.01f; // 100 Hz
+constexpr float FLOW_PERIOD = 0.01f; // 100 Hz
 constexpr float FLOW_MIN_QUALITY = 20; // quality threshold
 constexpr float FLOW_RAD_PER_PIXEL = 1.0f/12.5f; 
+
+// SPI mutex
+SemaphoreHandle_t spi_bus_mutex;
+
+void spi_bus_lock_init()
+{
+    spi_bus_mutex = xSemaphoreCreateMutex();
+    assert (spi_bus_mutex != NULL);
+}
 
 uint8_t scan_i2c() {
     USBSerial.println("I2C scanner. Scanning ...");
@@ -153,8 +165,13 @@ void sensor_init() {
     }
 
     tof_init();
+    spi_bus_lock_init();
+    xSemaphoreTake(spi_bus_mutex, portMAX_DELAY); 
     imu_init();
+    xSemaphoreGive(spi_bus_mutex);
+    xSemaphoreTake(spi_bus_mutex, portMAX_DELAY); 
     optical_flow_init();
+    xSemaphoreGive(spi_bus_mutex);
 
     Drone_ahrs.begin(400.0);
     ina3221.begin(&Wire1);
@@ -227,7 +244,9 @@ float sensor_read(void) {
     // Z軸：上下（上が正）左回りが回転の正
 
     // Get IMU raw data
+    xSemaphoreTake(spi_bus_mutex, portMAX_DELAY);
     imu_update();  // IMUの値を読む前に必ず実行
+    xSemaphoreGive(spi_bus_mutex);
     acc_x  = imu_get_acc_x();
     acc_y  = imu_get_acc_y();
     acc_z  = imu_get_acc_z();
@@ -354,33 +373,41 @@ float sensor_read(void) {
         // Az_bias);
 
         // -- OPTICAL FLOW ---
-        if (opt_interval >= FLOW_PEROID) {
+        if (opt_interval >= FLOW_PERIOD) {
+            float flow_dt = opt_interval;
             opt_interval = 0.0f;
 
-            int16_t dx, dy;
-            uint8_t quality;
+            static int16_t flow_dx=0;
+            static int16_t flow_dy=0;
+            static uint8_t quality=0;
+            
 
-            optical_flow_get_offset(dx, dy, quality);
+            xSemaphoreTake(spi_bus_mutex, portMAX_DELAY);
+            optical_flow_get_offset(&flow_dx, &flow_dy, &quality);
+            xSemaphoreGive(spi_bus_mutex);
 
-            Flow_dx = dx;
-            Flow_dy = dy;
+            Flow_dx = flow_dx;
+            Flow_dy = flow_dy;
             Flow_quality = quality;
 
+            USBSerial.printf("dx: %d, dy: %d, quality: %u\r\n",
+                flow_dx, flow_dy, quality);
             if (quality >= FLOW_MIN_QUALITY && Altitude2 > 0.05f) {
-                float scale = FLOW_RAD_PER_PIXEL * Altitude2 / FLOW_PEROID;
+                float scale = FLOW_RAD_PER_PIXEL * Altitude2 / flow_dt;
 
-                float vx = -dy * scale;
-                float vy  = dx * scale;
+                float vx = -flow_dy * scale;
+                float vy  = flow_dx * scale;
 
                 // LPF for stability
-                Flow_vx = flow_vx_filter.update(vx, sens_interval);
-                Flow_vy = flow_vy_filter.update(vy, sens_interval);
+                Flow_vx = flow_vx_filter.update(vx, flow_dt);
+                Flow_vy = flow_vy_filter.update(vy, flow_dt);
                 
+                // USBSerial.printf("Flow_dx: %.3f, Flow_dy: %.3f, Flow_vx: %.3f, Flow_vy: %.3f, Flow_quality: %d \r\n",
+                    // Flow_dx, Flow_dy, Flow_vx, Flow_vy, Flow_quality);
             } else {
                 Flow_vx *= 0.95f;
                 Flow_vy *= 0.95f;
             }
-            
         }
     }
 

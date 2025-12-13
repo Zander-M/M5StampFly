@@ -2,8 +2,7 @@
  P3901 optical flow test
 */
 #include <Arduino.h>
-#include <SPI.h>
-#include <Bitcraze_PMW3901.h>
+#include "pmw3901_esp.hpp"
 #include "USB.h"
 
 // -------- PIN CONFIG (ADJUST THESE FOR YOUR BOARD) --------
@@ -26,29 +25,50 @@
 
 //------------------------------------------------------------
 
-// Using digital pin 10 for chip select
-Bitcraze_PMW3901 flow(PIN_CS2);
+// Using digital 12 for chip select
+PMW3901_ESP flow(PIN_CS2);
+
+spi_bus_config_t buscfg = {
+    .mosi_io_num = PIN_MOSI,
+    .miso_io_num = PIN_MISO,
+    .sclk_io_num = PIN_SCK,
+    .quadwp_io_num = -1,
+    .quadhd_io_num = -1,
+    .max_transfer_sz = 4096*2,
+};
 
 void setup() {
   USBSerial.begin(115200);
-
-  if (!flow.begin(PIN_SCK, PIN_MISO, PIN_MOSI)) {
+  while (!USBSerial) {}
+  vTaskDelay(pdMS_TO_TICKS(1500));
+  USBSerial.println("Test Started.");
+  esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+  if (!flow.init()) {
     USBSerial.println("Initialization of the flow sensor failed");
     while(1) { }
   }
+  USBSerial.println("OF Initialized.");
 }
 
 int16_t dX,dY;
+uint8_t quality;
 
 void loop() {
   // Get motion count since last call
   flow.readMotionCount(&dX, &dY);
+  quality = flow.readQuality();
+
+  // dX = 10;
+  // dY = 10;
 
   USBSerial.print("X: ");
   USBSerial.print(dX);
   USBSerial.print(", Y: ");
   USBSerial.print(dY);
+  USBSerial.print(", quality: ");
+  USBSerial.print(quality);
+
   USBSerial.print("\n");
 
-  delay(100);
+  delay(10);
 }

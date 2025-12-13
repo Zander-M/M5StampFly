@@ -408,7 +408,6 @@ void loop_400Hz(void) {
     uint32_t ce_time = micros();
     Dt_time          = ce_time - cs_time;
     OldMode          = Mode;  // Memory now mode
-    // End of Loop_400Hz function
 }
 
 void flip(void) {

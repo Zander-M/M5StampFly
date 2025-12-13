@@ -97,9 +97,9 @@ extern volatile int16_t RawRangeFront;
 extern volatile int16_t RangeFront;
 
 // Optical Flow
-extern volatile float Flow_dx;
-extern volatile float Flow_dy;
-extern volatile float Flow_quality;
+extern volatile int16_t Flow_dx;
+extern volatile int16_t Flow_dy;
+extern volatile uint8_t Flow_quality;
 
 // Optical Flow velocity
 extern volatile float Flow_vx;
