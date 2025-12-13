@@ -93,8 +93,8 @@ volatile float Flow_vx = 0.0f;
 volatile float Flow_vy = 0.0f;
 
 constexpr float FLOW_PERIOD = 0.01f; // 100 Hz
-constexpr float FLOW_MIN_QUALITY = 20; // quality threshold
-constexpr float FLOW_RAD_PER_PIXEL = 1.0f/12.5f; 
+constexpr float FLOW_MIN_QUALITY = 40; // quality threshold
+constexpr float FLOW_RAD_PER_PIXEL = 1.0f/50.5f; 
 static uint32_t dbg_cnt = 0;
 
 // SPI mutex

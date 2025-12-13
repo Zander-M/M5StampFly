@@ -141,6 +141,11 @@ volatile float Roll_rate_reference = 0.0f, Pitch_rate_reference = 0.0f, Yaw_rate
 // 角度目標値
 // Angle reference
 volatile float Roll_angle_reference = 0.0f, Pitch_angle_reference = 0.0f, Yaw_angle_reference = 0.0f;
+
+// Horizontal velocity hold gain
+const float vel_xy_kp = 0.005f;
+const float vel_xy_max_angle = 5.0f * PI / 180.0f;
+
 // 舵角指令値
 // Commanad
 // スロットル指令値
@@ -1003,6 +1008,29 @@ void angle_control(void) {
             // Get Roll and Pitch angle ref
             Roll_angle_reference  = 0.5f * PI * (Roll_angle_command - Aileron_center);
             Pitch_angle_reference = 0.5f * PI * (Pitch_angle_command - Elevator_center);
+
+            // ----- Optical flow velocity hold -----
+            if (Alt_flag == 1 && Mode == FLIGHT_MODE) {
+                // Desired horizontal velocity = 0 (hover)
+                float vx_err = -Flow_vx;
+                float vy_err = -Flow_vy;
+            
+                // Convert velocity error to tilt correction
+                Pitch_angle_reference += vel_xy_kp * vx_err;
+                Roll_angle_reference  -= vel_xy_kp * vy_err;
+            
+                // Safety clamp
+                if (Pitch_angle_reference > vel_xy_max_angle)
+                    Pitch_angle_reference = vel_xy_max_angle;
+                if (Pitch_angle_reference < -vel_xy_max_angle)
+                    Pitch_angle_reference = -vel_xy_max_angle;
+            
+                if (Roll_angle_reference > vel_xy_max_angle)
+                    Roll_angle_reference = vel_xy_max_angle;
+                if (Roll_angle_reference < -vel_xy_max_angle)
+                    Roll_angle_reference = -vel_xy_max_angle;
+            }
+
             if (Roll_angle_reference > (30.0f * PI / 180.0f)) Roll_angle_reference = 30.0f * PI / 180.0f;
             if (Roll_angle_reference < -(30.0f * PI / 180.0f)) Roll_angle_reference = -30.0f * PI / 180.0f;
             if (Pitch_angle_reference > (30.0f * PI / 180.0f)) Pitch_angle_reference = 30.0f * PI / 180.0f;
