@@ -17,27 +17,11 @@ PMW3901_ESP::PMW3901_ESP(uint8_t cs)
 // ---------- Init ----------
 bool PMW3901_ESP::init(void)
 {
-    // CS Pin
-    gpio_config_t io = {};
-    io.pin_bit_mask = 1ULL << pin_cs;
-    io.mode = GPIO_MODE_OUTPUT;
-    io.pull_up_en = GPIO_PULLUP_DISABLE;
-    io.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    io.intr_type = GPIO_INTR_DISABLE;
-    gpio_config(&io);
-
-    gpio_set_level((gpio_num_t)pin_cs, 1);
-    ets_delay(1);
-    gpio_set_level((gpio_num_t)pin_cs, 0);
-    ets_delay(0);
-    gpio_set_level((gpio_num_t)pin_cs, 1);
-    ets_delay(1);
-
     // SPI 
     spi_device_interface_config_t devcfg = {};
     devcfg.mode = 3;                  // PMW3901 requires MODE3
     devcfg.clock_speed_hz = 4 * 1000 * 1000;
-    devcfg.spics_io_num = -1;
+    devcfg.spics_io_num = 12;
     devcfg.queue_size = 1;
     devcfg.flags = 0;
 
@@ -74,62 +58,32 @@ bool PMW3901_ESP::init(void)
 
 uint8_t PMW3901_ESP::regRead(uint8_t reg)
 {
-    reg &= ~0x80u;
+    uint8_t tx[2] = { uint8_t(reg & 0x7F), 0x00 };
+    uint8_t rx[2] = { 0, 0 };
 
-    uint8_t rx = 0;
+    spi_transaction_t t = {};
+    t.length = 16;                 // 2 bytes
+    t.tx_buffer = tx;
+    t.rx_buffer = rx;
 
-    gpio_set_level((gpio_num_t)pin_cs, 0);   // CS LOW
-    ets_delay_us(50);
+    ESP_ERROR_CHECK(
+        spi_device_polling_transmit(spidev, &t)
+    );
 
-    // Phase 1: send register address
-    {
-        uint8_t tx = reg;
-        spi_transaction_t t = {};
-        t.length = 8;
-        t.tx_buffer = &tx;
-        ESP_ERROR_CHECK(spi_device_polling_transmit(spidev, &t));
-    }
-
-    ets_delay_us(50);
-
-    // Phase 2: dummy byte, read response
-    {
-        uint8_t tx = 0x00;
-        spi_transaction_t t = {};
-        t.length = 8;
-        t.rxlength = 8;
-        t.tx_buffer = &tx;
-        t.rx_buffer = &rx;
-        ESP_ERROR_CHECK(spi_device_polling_transmit(spidev, &t));
-    }
-
-    ets_delay_us(100);
-    gpio_set_level((gpio_num_t)pin_cs, 1);   // CS HIGH
-
-    return rx;
+    return rx[1];
 }
-
 
 void PMW3901_ESP::regWrite(uint8_t reg, uint8_t value)
 {
-    reg |= 0x80u;
-
-    // Byte buffer must remain valid during transmit (polling is synchronous so stack is OK)
-    uint8_t tx[2] = { reg, value };
+    uint8_t tx[2] = { uint8_t(reg | 0x80), value };
 
     spi_transaction_t t = {};
     t.length = 16;
     t.tx_buffer = tx;
 
-    gpio_set_level((gpio_num_t)pin_cs, 0);   // CS LOW
-    ets_delay_us(50);
-
-    ESP_ERROR_CHECK(spi_device_polling_transmit(spidev, &t));
-
-    ets_delay_us(50);
-    gpio_set_level((gpio_num_t)pin_cs, 1);   // CS HIGH
-
-    ets_delay_us(200);
+    ESP_ERROR_CHECK(
+        spi_device_polling_transmit(spidev, &t)
+    );
 }
 
 

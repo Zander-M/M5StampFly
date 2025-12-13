@@ -95,6 +95,7 @@ volatile float Flow_vy = 0.0f;
 constexpr float FLOW_PERIOD = 0.01f; // 100 Hz
 constexpr float FLOW_MIN_QUALITY = 20; // quality threshold
 constexpr float FLOW_RAD_PER_PIXEL = 1.0f/12.5f; 
+static uint32_t dbg_cnt = 0;
 
 // SPI mutex
 SemaphoreHandle_t spi_bus_mutex;
@@ -390,20 +391,50 @@ float sensor_read(void) {
             Flow_dy = flow_dy;
             Flow_quality = quality;
 
-            USBSerial.printf("dx: %d, dy: %d, quality: %u\r\n",
-                flow_dx, flow_dy, quality);
+            // USBSerial.printf("dx: %d, dy: %d, quality: %u\r\n",
+                // flow_dx, flow_dy, quality);
             if (quality >= FLOW_MIN_QUALITY && Altitude2 > 0.05f) {
                 float scale = FLOW_RAD_PER_PIXEL * Altitude2 / flow_dt;
 
                 float vx = -flow_dy * scale;
                 float vy  = flow_dx * scale;
 
+                // Yaw rate in rad/s
+                float wz = Yaw_rate;
+
+                // Scaling factor
+                constexpr float FLOW_GYRO_SCALE = 1.0f;
+
+                // Remove rotational flow
+                vx -= wz * FLOW_GYRO_SCALE * Altitude2;
+                vy += wz * FLOW_GYRO_SCALE * Altitude2;
+
+                // Rotate body-frame velocity -> world frame
+                float cosYaw = cosf(Yaw_angle);
+                float sinYaw = sinf(Yaw_angle);
+
+                float vx_w = cosYaw * Flow_vx - sinYaw * Flow_vy;
+                float vy_w = sinYaw * Flow_vx + sinYaw * Flow_vy;
+
+                Flow_vx = vx_w;
+                Flow_vy = vy_w;
+
                 // LPF for stability
                 Flow_vx = flow_vx_filter.update(vx, flow_dt);
                 Flow_vy = flow_vy_filter.update(vy, flow_dt);
-                
+
+                // Clamp max velocity
+                constexpr float FLOW_VEL_MAX = 2.0f; // m/s indoor-safe
+
+                Flow_vx = constrain(Flow_vx, -FLOW_VEL_MAX, FLOW_VEL_MAX);
+                Flow_vy = constrain(Flow_vy, -FLOW_VEL_MAX, FLOW_VEL_MAX);
+
                 // USBSerial.printf("Flow_dx: %.3f, Flow_dy: %.3f, Flow_vx: %.3f, Flow_vy: %.3f, Flow_quality: %d \r\n",
                     // Flow_dx, Flow_dy, Flow_vx, Flow_vy, Flow_quality);
+                if (++dbg_cnt % 20 == 0) { // 5 Hz
+                    USBSerial.printf("dx=%d dy=%d q=%u vx=%.3f vy=%.3f alt=%.2f\n",
+                        flow_dx, flow_dy, quality, Flow_vx, Flow_vy, Altitude2);
+                }
             } else {
                 Flow_vx *= 0.95f;
                 Flow_vy *= 0.95f;
